@@ -103,3 +103,39 @@ async def test_api_proxy_with_filename(client):
 async def test_api_proxy_missing_url(client):
     resp = await client.get("/api/proxy")
     assert resp.status_code == 422
+
+
+# ====== 图文帖 API 测试 ======
+
+
+async def test_api_parse_image_post(client, sample_image_detail):
+    with patch("server.fetch_video_detail", new_callable=AsyncMock, return_value=sample_image_detail):
+        resp = await client.post("/api/parse", json={"share_text": "https://v.douyin.com/xxx/"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["type"] == "images"
+    assert data["data"]["video_urls"] == []
+    assert len(data["data"]["image_urls"]) == 2
+    assert data["data"]["title"] == "测试图文标题"
+
+
+async def test_api_download_image_post(client, sample_image_detail, tmp_path):
+    img_file = tmp_path / "fake.webp"
+    img_file.write_bytes(b"fake image content")
+
+    async def mock_download(url, save_path):
+        import shutil
+        shutil.copy(str(img_file), save_path)
+        return save_path
+
+    with (
+        patch("server.fetch_video_detail", new_callable=AsyncMock, return_value=sample_image_detail),
+        patch("server.download_video", side_effect=mock_download),
+    ):
+        resp = await client.post("/api/download", json={"share_text": "https://v.douyin.com/xxx/"})
+
+    assert resp.status_code == 200
+    # 多张图片返回 zip
+    assert "application/zip" in resp.headers.get("content-type", "") or "application/x-zip" in resp.headers.get("content-type", "")

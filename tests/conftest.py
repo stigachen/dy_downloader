@@ -39,6 +39,50 @@ def sample_detail_minimal():
 
 
 @pytest.fixture
+def sample_image_detail():
+    """模拟 Douyin 图文帖子详情 dict"""
+    return {
+        "aweme_id": "7603777432471298643",
+        "desc": "测试图文标题",
+        "aweme_type": 2,
+        "author": {
+            "nickname": "TestImageAuthor",
+            "uid": "654321",
+        },
+        "images": [
+            {
+                "url_list": [
+                    "https://p3-sign.douyinpic.com/tos-cn-i/img1.webp",
+                    "https://p3-sign.douyinpic.com/tos-cn-i/img1_backup.webp",
+                ],
+                "download_url_list": [
+                    "https://p3-sign.douyinpic.com/tos-cn-i/img1_wm.webp",
+                ],
+                "width": 1920,
+                "height": 1440,
+            },
+            {
+                "url_list": [
+                    "https://p3-sign.douyinpic.com/tos-cn-i/img2.webp",
+                ],
+                "download_url_list": [
+                    "https://p3-sign.douyinpic.com/tos-cn-i/img2_wm.webp",
+                ],
+                "width": 1920,
+                "height": 1440,
+            },
+        ],
+        "video": {
+            "play_addr": {
+                "uri": "https://sf5-hl-cdn-tos.douyinstatic.com/obj/ies-music/123.mp3",
+                "url_list": [],
+            },
+            "duration": 0,
+        },
+    }
+
+
+@pytest.fixture
 def sample_router_data_html(sample_detail):
     """包含 _ROUTER_DATA 的模拟 HTML 页面"""
     router_data = {

@@ -122,21 +122,54 @@ async def fetch_video_detail(share_url: str) -> dict:
 
 def extract_video_urls(detail: dict) -> dict:
     """
-    从视频详情中提取视频信息。
+    从视频/图文详情中提取内容信息。
+
+    通过 aweme_type 判断类型：
+        - aweme_type == 2: 图文帖，提取 images 数组中的图片 URL
+        - 其他: 视频帖，提取 play_addr 中的视频 URL
 
     返回:
         {
-            "title": 视频标题,
+            "type": "video" 或 "images",
+            "title": 标题,
             "author": 作者昵称,
-            "aweme_id": 视频ID,
+            "aweme_id": ID,
             "video_urls": [无水印视频URL列表],
+            "image_urls": [图片URL列表],
             "cover_url": 封面URL,
             "duration": 视频时长(秒),
         }
     """
-    video = detail.get("video", {})
     author_info = detail.get("author", {})
+    desc = detail.get("desc", "未知标题")
+    aweme_type = detail.get("aweme_type", 0)
 
+    base_info = {
+        "title": desc,
+        "author": author_info.get("nickname", "未知作者"),
+        "aweme_id": str(detail.get("aweme_id", "")),
+    }
+
+    # 图文帖
+    if aweme_type == 2:
+        images = detail.get("images", [])
+        image_urls = []
+        for img in images:
+            url_list = img.get("url_list", [])
+            if url_list:
+                image_urls.append(url_list[0])
+        cover_url = image_urls[0] if image_urls else ""
+        return {
+            **base_info,
+            "type": "images",
+            "video_urls": [],
+            "image_urls": image_urls,
+            "cover_url": cover_url,
+            "duration": 0,
+        }
+
+    # 视频帖
+    video = detail.get("video", {})
     play_addr = video.get("play_addr", {})
     uri = play_addr.get("uri", "")
 
@@ -166,15 +199,14 @@ def extract_video_urls(detail: dict) -> dict:
             seen.add(u)
             unique_urls.append(u)
 
-    desc = detail.get("desc", "未知标题")
     duration = video.get("duration", 0)
     cover = video.get("cover", {}).get("url_list", [""])[0]
 
     return {
-        "title": desc,
-        "author": author_info.get("nickname", "未知作者"),
-        "aweme_id": str(detail.get("aweme_id", "")),
+        **base_info,
+        "type": "video",
         "video_urls": unique_urls,
+        "image_urls": [],
         "cover_url": cover,
         "duration": duration // 1000 if duration > 1000 else duration,
     }
@@ -245,21 +277,54 @@ async def parse_and_download(
     detail = await fetch_video_detail(url)
     info = extract_video_urls(detail)
     aweme_id = info["aweme_id"]
-    print(f"[3/4] 视频 ID: {aweme_id}")
+    content_type = info.get("type", "video")
+    print(f"[3/4] ID: {aweme_id}")
+    print(f"      类型: {'图文' if content_type == 'images' else '视频'}")
     print(f"      标题: {info['title']}")
     print(f"      作者: {info['author']}")
-    print(f"      时长: {info['duration']}s")
-    print(f"      找到 {len(info['video_urls'])} 个视频地址")
+    if content_type == "video":
+        print(f"      时长: {info['duration']}s")
+        print(f"      找到 {len(info['video_urls'])} 个视频地址")
+    else:
+        print(f"      找到 {len(info['image_urls'])} 张图片")
 
     if only_parse:
         info["downloaded"] = False
         return info
 
+    os.makedirs(output_dir, exist_ok=True)
+
+    if content_type == "images":
+        # 图文帖：逐张下载图片
+        if not info["image_urls"]:
+            raise RuntimeError("未找到可下载的图片地址")
+
+        base_name = sanitize_filename(f"{info['author']}_{info['title']}")
+        saved_paths = []
+        for i, img_url in enumerate(info["image_urls"], 1):
+            ext = ".webp"
+            filename = f"{base_name}_{i}{ext}"
+            save_path = os.path.join(output_dir, filename)
+            print(f"[4/4] 正在下载图片 {i}/{len(info['image_urls'])}: {filename}")
+            try:
+                await download_video(img_url, save_path)
+                saved_paths.append(save_path)
+            except Exception as e:
+                print(f"图片 {i} 下载失败: {e}")
+
+        if not saved_paths:
+            raise RuntimeError("所有图片均下载失败")
+
+        info["save_paths"] = saved_paths
+        info["downloaded"] = True
+        print(f"下载完成: 共 {len(saved_paths)} 张图片")
+        return info
+
+    # 视频帖
     if not info["video_urls"]:
         raise RuntimeError("未找到可下载的视频地址")
 
     # 4. 下载视频
-    os.makedirs(output_dir, exist_ok=True)
     filename = sanitize_filename(f"{info['author']}_{info['title']}") + ".mp4"
     save_path = os.path.join(output_dir, filename)
 
