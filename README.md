@@ -41,7 +41,7 @@ python cli.py "https://v.douyin.com/xxx/" --parse-only --json
 ### Web Server
 
 ```bash
-# Start server (default: http://127.0.0.1:8000)
+# Start server (default: http://0.0.0.0:8000, accessible from LAN)
 python server.py
 
 # Custom host and port
@@ -62,3 +62,14 @@ The web server provides:
 | `douyin_core.py` | Core video extraction and download logic (async) |
 | `cli.py` | Command-line interface |
 | `server.py` | FastAPI web server with embedded frontend |
+| `tests/` | Regression test suite |
+
+## Testing
+
+```bash
+# Install test dependencies
+uv pip install -r requirements-dev.txt
+
+# Run all tests
+pytest tests/ -v
+```
