@@ -28,6 +28,9 @@ VIDEO_ID_PATTERNS = [
 # 从分享页提取 _ROUTER_DATA
 ROUTER_DATA_PATTERN = re.compile(r"window\._ROUTER_DATA\s*=\s*(\{.*?\})</script>", re.DOTALL)
 
+# 从 /share/slides/{id}/ 路径中提取 aweme_id
+SLIDES_PATH_PATTERN = re.compile(r"/share/slides/(\d+)")
+
 # 移动端 UA (用于触发 iesdouyin 分享页，该页面包含视频数据)
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
@@ -75,6 +78,9 @@ async def fetch_video_detail(share_url: str) -> dict:
     通过移动端 UA 访问分享链接，从 iesdouyin.com 分享页面的
     _ROUTER_DATA 中提取视频详情。
 
+    如果重定向到 /share/slides/ 页面（CSR，无 _ROUTER_DATA），
+    则从 URL 中提取 aweme_id，改用 /share/video/ 路径重新请求。
+
     这种方式不需要 Cookie 或签名算法。
     """
     async with httpx.AsyncClient(
@@ -84,6 +90,16 @@ async def fetch_video_detail(share_url: str) -> dict:
     ) as client:
         resp = await client.get(share_url)
         resp.raise_for_status()
+        final_url = str(resp.url)
+
+        # /share/slides/ 页面是纯 CSR，不包含 _ROUTER_DATA
+        # 需要提取 aweme_id 后改用 /share/video/ 路径请求
+        slides_match = SLIDES_PATH_PATTERN.search(final_url)
+        if slides_match:
+            aweme_id = slides_match.group(1)
+            video_url = f"https://www.iesdouyin.com/share/video/{aweme_id}/"
+            resp = await client.get(video_url)
+            resp.raise_for_status()
 
     html = resp.text
 
