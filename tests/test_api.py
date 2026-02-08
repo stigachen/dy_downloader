@@ -72,22 +72,16 @@ async def test_api_proxy_with_filename(client):
     async def fake_aiter_bytes(chunk_size=None):
         yield b"video data"
 
-    mock_stream_resp = MagicMock()
-    mock_stream_resp.raise_for_status = MagicMock()
-    mock_stream_resp.headers = {"content-type": "video/mp4", "content-length": "10"}
-    mock_stream_resp.aiter_bytes = fake_aiter_bytes
-    mock_stream_resp.__aenter__ = AsyncMock(return_value=mock_stream_resp)
-    mock_stream_resp.__aexit__ = AsyncMock(return_value=False)
-
-    mock_head_resp = MagicMock()
-    mock_head_resp.raise_for_status = MagicMock()
-    mock_head_resp.headers = {"content-type": "video/mp4", "content-length": "10"}
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.headers = {"content-type": "video/mp4", "content-length": "10"}
+    mock_resp.aiter_bytes = fake_aiter_bytes
+    mock_resp.aclose = AsyncMock()
 
     mock_client = MagicMock()
-    mock_client.head = AsyncMock(return_value=mock_head_resp)
-    mock_client.stream.return_value = mock_stream_resp
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.build_request = MagicMock(return_value="fake_request")
+    mock_client.send = AsyncMock(return_value=mock_resp)
+    mock_client.aclose = AsyncMock()
 
     with patch("server.httpx.AsyncClient", return_value=mock_client):
         resp = await client.get(
@@ -186,3 +180,32 @@ async def test_api_download_concurrent_same_video(client, sample_detail, tmp_pat
         assert resp.status_code == 200
         assert "video/mp4" in resp.headers.get("content-type", "")
         assert len(resp.content) > 0
+
+
+async def test_api_proxy_image_url(client):
+    """代理图片 URL（douyinpic.com CDN）应正常工作，不再依赖 HEAD 请求"""
+    async def fake_aiter_bytes(chunk_size=None):
+        yield b"image data"
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.headers = {"content-type": "image/webp", "content-length": "10"}
+    mock_resp.aiter_bytes = fake_aiter_bytes
+    mock_resp.aclose = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.build_request = MagicMock(return_value="fake_request")
+    mock_client.send = AsyncMock(return_value=mock_resp)
+    mock_client.aclose = AsyncMock()
+
+    with patch("server.httpx.AsyncClient", return_value=mock_client):
+        resp = await client.get(
+            "/api/proxy",
+            params={
+                "url": "https://p26-sign.douyinpic.com/tos-cn-i/image.webp?x-expires=123",
+                "filename": "图片.webp",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type") == "image/webp"

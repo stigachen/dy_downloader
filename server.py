@@ -195,36 +195,37 @@ async def api_proxy(
         "Referer": "https://www.douyin.com/",
     }
 
-    async def stream_video():
-        async with httpx.AsyncClient(
+    try:
+        # 用 GET 流式请求，从响应头中读取 content-type 和 content-length
+        # 不再发 HEAD 预检，因为部分 CDN（如 douyinpic.com）不支持 HEAD 方法
+        client = httpx.AsyncClient(
             headers=headers,
             follow_redirects=True,
             timeout=120,
-        ) as client:
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    yield chunk
-
-    try:
-        # 先发一个 HEAD 请求获取 content-type 和 content-length
-        async with httpx.AsyncClient(
-            headers=headers,
-            follow_redirects=True,
-            timeout=30,
-        ) as client:
-            head_resp = await client.head(url)
-            head_resp.raise_for_status()
+        )
+        resp = await client.send(
+            client.build_request("GET", url),
+            stream=True,
+        )
+        resp.raise_for_status()
 
         resp_headers = {
-            "Content-Type": head_resp.headers.get("content-type", "video/mp4"),
+            "Content-Type": resp.headers.get("content-type", "video/mp4"),
         }
-        if "content-length" in head_resp.headers:
-            resp_headers["Content-Length"] = head_resp.headers["content-length"]
+        if "content-length" in resp.headers:
+            resp_headers["Content-Length"] = resp.headers["content-length"]
         if filename:
             resp_headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename)}"
 
-        return StreamingResponse(stream_video(), headers=resp_headers)
+        async def stream_response():
+            try:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    yield chunk
+            finally:
+                await resp.aclose()
+                await client.aclose()
+
+        return StreamingResponse(stream_response(), headers=resp_headers)
 
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=f"代理请求失败: {e}")
