@@ -312,10 +312,6 @@ INDEX_HTML = """
         button:hover { opacity: 0.85; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-parse {
-            background: #333;
-            color: #fff;
-        }
-        .btn-download {
             background: #fe2c55;
             color: #fff;
         }
@@ -382,7 +378,6 @@ INDEX_HTML = """
 
         <div class="btn-row">
             <button class="btn-parse" id="btnParse" onclick="parseVideo()">解析视频</button>
-            <button class="btn-download" id="btnDownload" onclick="downloadVideo()">解析并下载</button>
         </div>
 
         <div class="loading" id="loading">解析中...</div>
@@ -413,44 +408,6 @@ INDEX_HTML = """
 
                 const json = await resp.json();
                 showResult(json.data);
-            } catch (e) {
-                showError(e.message);
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        async function downloadVideo() {
-            const shareText = document.getElementById('shareText').value.trim();
-            if (!shareText) return;
-
-            setLoading(true);
-            hideError();
-            hideResult();
-
-            try {
-                const resp = await fetch('/api/download', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({share_text: shareText}),
-                });
-
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    throw new Error(err.detail || '下载失败');
-                }
-
-                const blob = await resp.blob();
-                const disposition = resp.headers.get('content-disposition') || '';
-                let filename = 'douyin_video.mp4';
-                const match = disposition.match(/filename\\*?=(?:UTF-8'')?([^;]+)/i);
-                if (match) filename = decodeURIComponent(match[1].replace(/"/g, ''));
-
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = filename;
-                a.click();
-                URL.revokeObjectURL(a.href);
             } catch (e) {
                 showError(e.message);
             } finally {
@@ -508,7 +465,6 @@ INDEX_HTML = """
         function setLoading(on) {
             document.getElementById('loading').classList.toggle('show', on);
             document.getElementById('btnParse').disabled = on;
-            document.getElementById('btnDownload').disabled = on;
         }
     </script>
 </body>
