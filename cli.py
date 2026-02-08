@@ -64,15 +64,22 @@ def main():
         if args.json_output:
             print(json.dumps(info, ensure_ascii=False, indent=2))
         elif args.parse_only:
-            print("\n--- 视频信息 ---")
+            content_type = info.get("type", "video")
+            print(f"\n--- {'图文' if content_type == 'images' else '视频'}信息 ---")
             print(f"标题: {info['title']}")
             print(f"作者: {info['author']}")
-            print(f"视频ID: {info['aweme_id']}")
-            print(f"时长: {info['duration']}s")
-            print(f"封面: {info['cover_url']}")
-            print(f"视频地址:")
-            for i, u in enumerate(info["video_urls"], 1):
-                print(f"  [{i}] {u}")
+            print(f"ID: {info['aweme_id']}")
+            if content_type == "video":
+                print(f"时长: {info['duration']}s")
+                print(f"封面: {info['cover_url']}")
+                print(f"视频地址:")
+                for i, u in enumerate(info["video_urls"], 1):
+                    print(f"  [{i}] {u}")
+            else:
+                print(f"图片数量: {len(info.get('image_urls', []))}")
+                print(f"图片地址:")
+                for i, u in enumerate(info.get("image_urls", []), 1):
+                    print(f"  [{i}] {u}")
 
     except KeyboardInterrupt:
         print("\n已取消")

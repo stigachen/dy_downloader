@@ -12,6 +12,9 @@ API:
 """
 
 import os
+import zipfile
+import tempfile
+import shutil
 from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
@@ -57,19 +60,66 @@ async def api_parse(req: ParseRequest):
 
 @app.post("/api/download")
 async def api_download(req: ParseRequest):
-    """解析并下载视频，返回视频文件"""
+    """解析并下载视频/图片，返回文件"""
     try:
         url = extract_url(req.share_text)
         detail = await fetch_video_detail(url)
         info = extract_video_urls(detail)
+        content_type = info.get("type", "video")
 
+        tmp_dir = "/tmp/douyin_downloads"
+        os.makedirs(tmp_dir, exist_ok=True)
+        base_name = sanitize_filename(f"{info['author']}_{info['title']}")
+
+        if content_type == "images":
+            # 图文帖：下载所有图片，打包为 zip
+            if not info.get("image_urls"):
+                raise HTTPException(status_code=404, detail="未找到图片地址")
+
+            img_dir = tempfile.mkdtemp(dir=tmp_dir)
+            saved = []
+            for i, img_url in enumerate(info["image_urls"], 1):
+                img_path = os.path.join(img_dir, f"{base_name}_{i}.webp")
+                try:
+                    await download_video(img_url, img_path)
+                    saved.append(img_path)
+                except Exception:
+                    continue
+
+            if not saved:
+                shutil.rmtree(img_dir, ignore_errors=True)
+                raise HTTPException(status_code=500, detail="所有图片下载失败")
+
+            if len(saved) == 1:
+                # 只有一张图片，直接返回
+                filename = f"{base_name}.webp"
+                return FileResponse(
+                    saved[0],
+                    media_type="image/webp",
+                    filename=filename,
+                    background=BackgroundTask(shutil.rmtree, img_dir, ignore_errors=True),
+                )
+
+            # 多张图片打包为 zip
+            zip_filename = f"{base_name}.zip"
+            zip_path = os.path.join(tmp_dir, zip_filename)
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for p in saved:
+                    zf.write(p, os.path.basename(p))
+            shutil.rmtree(img_dir, ignore_errors=True)
+
+            return FileResponse(
+                zip_path,
+                media_type="application/zip",
+                filename=zip_filename,
+                background=BackgroundTask(os.remove, zip_path),
+            )
+
+        # 视频帖
         if not info["video_urls"]:
             raise HTTPException(status_code=404, detail="未找到视频地址")
 
-        # 下载到临时目录
-        tmp_dir = "/tmp/douyin_downloads"
-        os.makedirs(tmp_dir, exist_ok=True)
-        filename = sanitize_filename(f"{info['author']}_{info['title']}") + ".mp4"
+        filename = base_name + ".mp4"
         save_path = os.path.join(tmp_dir, filename)
 
         last_error = None
@@ -370,22 +420,40 @@ INDEX_HTML = """
 
         function showResult(data) {
             const el = document.getElementById('result');
-            const filename = (data.author && data.title)
-                ? (data.author + '_' + data.title).replace(/[\\\\/:*?"<>|]/g, '_') + '.mp4'
-                : 'douyin_video.mp4';
-            let videoLinks = '';
-            (data.video_urls || []).forEach((u, i) => {
-                const proxyUrl = '/api/proxy?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename);
-                videoLinks += `<a class="video-link" href="${proxyUrl}" target="_blank" rel="noopener">[${i+1}] ${u}</a>`;
-            });
+            const baseName = (data.author && data.title)
+                ? (data.author + '_' + data.title).replace(/[\\\\/:*?"<>|]/g, '_')
+                : 'douyin_video';
+            const isImages = data.type === 'images';
+
+            let contentLinks = '';
+            if (isImages) {
+                (data.image_urls || []).forEach((u, i) => {
+                    const imgFilename = baseName + '_' + (i+1) + '.webp';
+                    const proxyUrl = '/api/proxy?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(imgFilename);
+                    contentLinks += `<a class="video-link" href="${proxyUrl}" target="_blank" rel="noopener">[${i+1}] ${u}</a>`;
+                });
+            } else {
+                const filename = baseName + '.mp4';
+                (data.video_urls || []).forEach((u, i) => {
+                    const proxyUrl = '/api/proxy?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename);
+                    contentLinks += `<a class="video-link" href="${proxyUrl}" target="_blank" rel="noopener">[${i+1}] ${u}</a>`;
+                });
+            }
+
+            const typeLabel = isImages ? '图文' : '视频';
+            const extraInfo = isImages
+                ? `<div class="info-row"><span>图片数量：</span>${(data.image_urls || []).length}</div>`
+                : `<div class="info-row"><span>时长：</span>${data.duration || 0}s</div>`;
+            const linksLabel = isImages ? '图片地址' : '无水印视频地址';
 
             el.innerHTML = `
                 <h3>${data.title || '未知标题'}</h3>
+                <div class="info-row"><span>类型：</span>${typeLabel}</div>
                 <div class="info-row"><span>作者：</span>${data.author || '-'}</div>
-                <div class="info-row"><span>视频ID：</span>${data.aweme_id || '-'}</div>
-                <div class="info-row"><span>时长：</span>${data.duration || 0}s</div>
-                <div class="info-row" style="margin-top:12px;"><span>无水印视频地址：</span></div>
-                ${videoLinks}
+                <div class="info-row"><span>ID：</span>${data.aweme_id || '-'}</div>
+                ${extraInfo}
+                <div class="info-row" style="margin-top:12px;"><span>${linksLabel}：</span></div>
+                ${contentLinks}
             `;
             el.classList.add('show');
         }

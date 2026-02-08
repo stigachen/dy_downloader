@@ -72,4 +72,25 @@ uv pip install -r requirements-dev.txt
 
 # Run all tests
 pytest tests/ -v
+
+# Run a single test file
+pytest tests/test_api.py -v
+
+# Run a single test function
+pytest tests/test_api.py::test_api_parse_success -v
+
+# Run tests matching a keyword
+pytest -k "image_post" -v
 ```
+
+Tests are fully offline — all HTTP calls are mocked via `unittest.mock.patch` and `AsyncMock`. Test coverage includes:
+
+| Test file | Covers |
+|---|---|
+| `test_extract_url.py` | URL extraction from share text |
+| `test_extract_aweme_id.py` | Video ID parsing from various URL formats |
+| `test_sanitize_filename.py` | Filename cleaning and edge cases |
+| `test_extract_video_urls.py` | Video & image post metadata extraction |
+| `test_fetch_video_detail.py` | HTML parsing and `_ROUTER_DATA` extraction |
+| `test_download_video.py` | File download and HTTP error handling |
+| `test_api.py` | FastAPI endpoints (parse, download, proxy) |
