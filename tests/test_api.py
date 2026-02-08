@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 import httpx
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -157,3 +158,31 @@ async def test_api_download_image_post(client, sample_image_detail, tmp_path):
     assert resp.status_code == 200
     # 多张图片返回 zip
     assert "application/zip" in resp.headers.get("content-type", "") or "application/x-zip" in resp.headers.get("content-type", "")
+
+
+async def test_api_download_concurrent_same_video(client, sample_detail, tmp_path):
+    """并发下载同一视频时，各请求使用独立临时文件，互不干扰"""
+    video_file = tmp_path / "test.mp4"
+    video_file.write_bytes(b"fake video content")
+
+    async def mock_download(url, save_path):
+        import shutil
+        # 模拟下载耗时，增加并发冲突概率
+        await asyncio.sleep(0.05)
+        shutil.copy(str(video_file), save_path)
+        return save_path
+
+    with (
+        patch("server.fetch_video_detail", new_callable=AsyncMock, return_value=sample_detail),
+        patch("server.download_video", side_effect=mock_download),
+    ):
+        results = await asyncio.gather(
+            client.post("/api/download", json={"share_text": "https://v.douyin.com/aaa/"}),
+            client.post("/api/download", json={"share_text": "https://v.douyin.com/bbb/"}),
+            client.post("/api/download", json={"share_text": "https://v.douyin.com/ccc/"}),
+        )
+
+    for resp in results:
+        assert resp.status_code == 200
+        assert "video/mp4" in resp.headers.get("content-type", "")
+        assert len(resp.content) > 0
