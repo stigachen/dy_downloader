@@ -55,6 +55,33 @@ The web server provides:
 - `POST /api/download` — Returns the video file directly
 - `GET /api/proxy` — Proxies video requests to resolve CDN 403 issues
 
+## Docker
+
+### 使用现成镜像
+
+```bash
+docker pull stigachen/dy-downloader:latest
+docker run -d -p 8000:8000 --name dy-downloader stigachen/dy-downloader:latest
+```
+
+访问 `http://localhost:8000` 即可使用。
+
+### 自行构建
+
+```bash
+# 单架构构建（当前平台）
+docker build -t stigachen/dy-downloader:latest .
+
+# 多架构构建并推送到 Docker Hub（支持 amd64 + arm64）
+docker buildx create --name multiarch --use
+docker buildx inspect --bootstrap
+docker login
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t stigachen/dy-downloader:latest \
+  --push .
+```
+
 ## Project Structure
 
 | File | Description |
