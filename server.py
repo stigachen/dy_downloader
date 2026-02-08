@@ -12,6 +12,7 @@ API:
 """
 
 import os
+from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
@@ -94,7 +95,10 @@ async def api_download(req: ParseRequest):
 
 
 @app.get("/api/proxy")
-async def api_proxy(url: str = Query(..., description="视频 URL")):
+async def api_proxy(
+    url: str = Query(..., description="视频 URL"),
+    filename: str = Query(None, description="下载文件名"),
+):
     """代理视频请求，解决 CDN 403 问题"""
     headers = {
         "User-Agent": MOBILE_UA,
@@ -127,6 +131,8 @@ async def api_proxy(url: str = Query(..., description="视频 URL")):
         }
         if "content-length" in head_resp.headers:
             resp_headers["Content-Length"] = head_resp.headers["content-length"]
+        if filename:
+            resp_headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename)}"
 
         return StreamingResponse(stream_video(), headers=resp_headers)
 
@@ -364,9 +370,12 @@ INDEX_HTML = """
 
         function showResult(data) {
             const el = document.getElementById('result');
+            const filename = (data.author && data.title)
+                ? (data.author + '_' + data.title).replace(/[\\\\/:*?"<>|]/g, '_') + '.mp4'
+                : 'douyin_video.mp4';
             let videoLinks = '';
             (data.video_urls || []).forEach((u, i) => {
-                const proxyUrl = '/api/proxy?url=' + encodeURIComponent(u);
+                const proxyUrl = '/api/proxy?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename);
                 videoLinks += `<a class="video-link" href="${proxyUrl}" target="_blank" rel="noopener">[${i+1}] ${u}</a>`;
             });
 
@@ -409,7 +418,7 @@ def start_server():
     import uvicorn
 
     parser = argparse.ArgumentParser(description="抖音无水印下载 Web 服务")
-    parser.add_argument("--host", default="127.0.0.1", help="监听地址 (默认: 127.0.0.1)")
+    parser.add_argument("--host", default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="端口 (默认: 8000)")
     args = parser.parse_args()
 
