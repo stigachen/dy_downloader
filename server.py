@@ -71,15 +71,18 @@ async def api_download(req: ParseRequest):
         os.makedirs(tmp_dir, exist_ok=True)
         base_name = sanitize_filename(f"{info['author']}_{info['title']}")
 
+        # 每个请求使用独立临时目录，避免并发请求间文件名冲突
+        req_dir = tempfile.mkdtemp(dir=tmp_dir)
+
         if content_type == "images":
             # 图文帖：下载所有图片，打包为 zip
             if not info.get("image_urls"):
+                shutil.rmtree(req_dir, ignore_errors=True)
                 raise HTTPException(status_code=404, detail="未找到图片地址")
 
-            img_dir = tempfile.mkdtemp(dir=tmp_dir)
             saved = []
             for i, img_url in enumerate(info["image_urls"], 1):
-                img_path = os.path.join(img_dir, f"{base_name}_{i}.webp")
+                img_path = os.path.join(req_dir, f"{base_name}_{i}.webp")
                 try:
                     await download_video(img_url, img_path)
                     saved.append(img_path)
@@ -87,7 +90,7 @@ async def api_download(req: ParseRequest):
                     continue
 
             if not saved:
-                shutil.rmtree(img_dir, ignore_errors=True)
+                shutil.rmtree(req_dir, ignore_errors=True)
                 raise HTTPException(status_code=500, detail="所有图片下载失败")
 
             if len(saved) == 1:
@@ -97,30 +100,30 @@ async def api_download(req: ParseRequest):
                     saved[0],
                     media_type="image/webp",
                     filename=filename,
-                    background=BackgroundTask(shutil.rmtree, img_dir, ignore_errors=True),
+                    background=BackgroundTask(shutil.rmtree, req_dir, ignore_errors=True),
                 )
 
             # 多张图片打包为 zip
             zip_filename = f"{base_name}.zip"
-            zip_path = os.path.join(tmp_dir, zip_filename)
+            zip_path = os.path.join(req_dir, zip_filename)
             with zipfile.ZipFile(zip_path, "w") as zf:
                 for p in saved:
                     zf.write(p, os.path.basename(p))
-            shutil.rmtree(img_dir, ignore_errors=True)
 
             return FileResponse(
                 zip_path,
                 media_type="application/zip",
                 filename=zip_filename,
-                background=BackgroundTask(os.remove, zip_path),
+                background=BackgroundTask(shutil.rmtree, req_dir, ignore_errors=True),
             )
 
         # 视频帖
         if not info["video_urls"]:
+            shutil.rmtree(req_dir, ignore_errors=True)
             raise HTTPException(status_code=404, detail="未找到视频地址")
 
         filename = base_name + ".mp4"
-        save_path = os.path.join(tmp_dir, filename)
+        save_path = os.path.join(req_dir, filename)
 
         last_error = None
         for video_url in info["video_urls"]:
@@ -130,12 +133,13 @@ async def api_download(req: ParseRequest):
                     save_path,
                     media_type="video/mp4",
                     filename=filename,
-                    background=BackgroundTask(os.remove, save_path),
+                    background=BackgroundTask(shutil.rmtree, req_dir, ignore_errors=True),
                 )
             except Exception as e:
                 last_error = e
                 continue
 
+        shutil.rmtree(req_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"下载失败: {last_error}")
 
     except HTTPException:
