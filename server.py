@@ -15,7 +15,7 @@ import os
 import zipfile
 import tempfile
 import shutil
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
@@ -144,12 +144,48 @@ async def api_download(req: ParseRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+ALLOWED_PROXY_DOMAINS = {
+    "douyinvod.com",
+    "douyincdn.com",
+    "snssdk.com",
+    "amemv.com",
+    "bytecdn.cn",
+    "bytedance.com",
+    "pstatp.com",
+    "iesdouyin.com",
+    "douyin.com",
+    "byteicdn.com",
+    "ibytedtos.com",
+    "byted-static.com",
+    "toutiaovod.com",
+    "douyinpic.com",
+}
+
+
+def _is_allowed_proxy_url(url: str) -> bool:
+    """检查 URL 是否属于允许代理的域名，防止 SSRF 攻击"""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname or ""
+        return any(
+            hostname == domain or hostname.endswith("." + domain)
+            for domain in ALLOWED_PROXY_DOMAINS
+        )
+    except Exception:
+        return False
+
+
 @app.get("/api/proxy")
 async def api_proxy(
     url: str = Query(..., description="视频 URL"),
     filename: str = Query(None, description="下载文件名"),
 ):
     """代理视频请求，解决 CDN 403 问题"""
+    if not _is_allowed_proxy_url(url):
+        raise HTTPException(status_code=403, detail="该 URL 域名不在允许代理的范围内")
+
     headers = {
         "User-Agent": MOBILE_UA,
         "Referer": "https://www.douyin.com/",

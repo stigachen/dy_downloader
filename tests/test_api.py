@@ -91,7 +91,7 @@ async def test_api_proxy_with_filename(client):
     with patch("server.httpx.AsyncClient", return_value=mock_client):
         resp = await client.get(
             "/api/proxy",
-            params={"url": "https://example.com/video.mp4", "filename": "测试.mp4"},
+            params={"url": "https://v3-dy.douyinvod.com/video.mp4", "filename": "测试.mp4"},
         )
 
     assert resp.status_code == 200
@@ -103,6 +103,24 @@ async def test_api_proxy_with_filename(client):
 async def test_api_proxy_missing_url(client):
     resp = await client.get("/api/proxy")
     assert resp.status_code == 422
+
+
+async def test_api_proxy_blocks_disallowed_domain(client):
+    """SSRF 防护：非白名单域名应返回 403"""
+    resp = await client.get("/api/proxy", params={"url": "https://evil.com/steal"})
+    assert resp.status_code == 403
+
+
+async def test_api_proxy_blocks_internal_ip(client):
+    """SSRF 防护：内网地址应返回 403"""
+    resp = await client.get("/api/proxy", params={"url": "http://169.254.169.254/latest/meta-data/"})
+    assert resp.status_code == 403
+
+
+async def test_api_proxy_blocks_non_http_scheme(client):
+    """SSRF 防护：非 http/https 协议应返回 403"""
+    resp = await client.get("/api/proxy", params={"url": "file:///etc/passwd"})
+    assert resp.status_code == 403
 
 
 # ====== 图文帖 API 测试 ======
